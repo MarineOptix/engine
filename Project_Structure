@@ -1,0 +1,6 @@
+├── app/  
+│   ├── main.py               # FastAPI endpoints  
+│   ├── ml/cnn_model.py       # CNN for diagram analysis  
+│   └── storage/s3.py         # MinIO/S3 client  
+├── tests/                    # Pytest scripts  
+└── requirements.txt          # Dependencies  
