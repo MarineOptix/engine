@@ -1,0 +1,154 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+
+# 1. Определение класса для обработки данных
+class EngineDataset(Dataset):
+    def __init__(self, features, targets):
+        self.features = torch.FloatTensor(features)
+        self.targets = torch.LongTensor(targets)
+        
+    def __len__(self):
+        return len(self.features)
+    
+    def __getitem__(self, idx):
+        return self.features[idx], self.targets[idx]
+
+# 2. Архитектура нейросети
+class EngineHealthNN(nn.Module):
+    def __init__(self, input_size, num_classes):
+        super(EngineHealthNN, self).__init__()
+        self.fc1 = nn.Linear(input_size, 128)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(0.2)
+        self.fc2 = nn.Linear(128, 64)
+        self.fc3 = nn.Linear(64, num_classes)
+        
+    def forward(self, x):
+        out = self.fc1(x)
+        out = self.relu(out)
+        out = self.dropout(out)
+        out = self.fc2(out)
+        out = self.relu(out)
+        out = self.fc3(out)
+        return out
+
+# 3. Подготовка данных
+def prepare_data(filepath):
+    # Загрузка данных
+    data = pd.read_csv(filepath)
+    
+    # Определение признаков и целевой переменной
+    features = data[[
+        'compression_pressure',
+        'exhaust_temperature', 
+        'oil_pressure',
+        'vibration_level',
+        'fuel_consumption',
+        'coolant_temp'
+    ]]
+    
+    target = data['engine_condition']
+    
+    # Нормализация данных
+    scaler = StandardScaler()
+    features = scaler.fit_transform(features)
+    
+    # Разделение на обучающую и тестовую выборки
+    X_train, X_test, y_train, y_test = train_test_split(
+        features, target, test_size=0.2, random_state=42
+    )
+    
+    return X_train, X_test, y_train, y_test, scaler
+
+# 4. Обучение модели
+def train_model(model, train_loader, criterion, optimizer, num_epochs=50):
+    train_losses = []
+    
+    for epoch in range(num_epochs):
+        running_loss = 0.0
+        for inputs, labels in train_loader:
+            optimizer.zero_grad()
+            
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            
+            running_loss += loss.item()
+        
+        epoch_loss = running_loss / len(train_loader)
+        train_losses.append(epoch_loss)
+        
+        if (epoch+1) % 10 == 0:
+            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}')
+    
+    return train_losses
+
+# 5. Оценка модели
+def evaluate_model(model, test_loader):
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for inputs, labels in test_loader:
+            outputs = model(inputs)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    
+    accuracy = 100 * correct / total
+    print(f'Accuracy: {accuracy:.2f}%')
+    return accuracy
+
+# 6. Пример использования
+if __name__ == "__main__":
+    # Параметры
+    FILE_PATH = 'engine_data.csv'
+    BATCH_SIZE = 32
+    LEARNING_RATE = 0.001
+    NUM_EPOCHS = 100
+    NUM_CLASSES = 5  # Нормальное состояние + 4 типа неисправностей
+    
+    # Подготовка данных
+    X_train, X_test, y_train, y_test, scaler = prepare_data(FILE_PATH)
+    
+    # Создание DataLoader
+    train_dataset = EngineDataset(X_train, y_train.values)
+    test_dataset = EngineDataset(X_test, y_test.values)
+    
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE)
+    
+    # Инициализация модели
+    input_size = X_train.shape[1]
+    model = EngineHealthNN(input_size, NUM_CLASSES)
+    
+    # Определение функции потерь и оптимизатора
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    
+    # Обучение модели
+    print("Начало обучения...")
+    train_losses = train_model(model, train_loader, criterion, optimizer, NUM_EPOCHS)
+    
+    # Оценка модели
+    print("\nОценка модели на тестовых данных...")
+    accuracy = evaluate_model(model, test_loader)
+    
+    # Визуализация процесса обучения
+    plt.plot(train_losses)
+    plt.title('График обучения')
+    plt.xlabel('Эпоха')
+    plt.ylabel('Потери')
+    plt.show()
+    
+    # Сохранение модели и scaler
+    torch.save(model.state_dict(), 'engine_health_model.pth')
+    joblib.dump(scaler, 'scaler.pkl')
+    print("Модель и scaler сохранены")
